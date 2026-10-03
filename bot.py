@@ -118,16 +118,16 @@ def analyze(cs):
     hi, lo = max(h[n - 20:n]), min(l[n - 20:n])
 
     score, why = 0.0, []
-    if px > e50[n]: score += 1; why.append("السعر فوق EMA 50 (اتجاه صاعد)")
-    else: score -= 1; why.append("السعر تحت EMA 50 (اتجاه هابط)")
-    if e20[n] > e50[n]: score += 1; why.append("EMA 20 فوق EMA 50")
-    else: score -= 1; why.append("EMA 20 تحت EMA 50")
-    if R < 30: score += 1; why.append(f"RSI {R:.0f} تشبّع بيعي")
-    elif R > 70: score -= 1; why.append(f"RSI {R:.0f} تشبّع شرائي")
-    elif R >= 52: score += .5; why.append(f"RSI {R:.0f} زخم إيجابي")
-    elif R <= 48: score -= .5; why.append(f"RSI {R:.0f} زخم ضعيف")
-    if hist[n] > 0: score += 1; why.append("MACD إيجابي")
-    else: score -= 1; why.append("MACD سلبي")
+    if px > e50[n]: score += 1; why.append("الاتجاه العام صاعد: السعر فوق EMA 50")
+    else: score -= 1; why.append("الاتجاه العام هابط: السعر تحت EMA 50")
+    if e20[n] > e50[n]: score += 1; why.append("تقاطع إيجابي: EMA 20 فوق EMA 50")
+    else: score -= 1; why.append("تقاطع سلبي: EMA 20 تحت EMA 50")
+    if R < 30: score += 1; why.append(f"تشبّع بيعي: RSI عند {R:.0f}")
+    elif R > 70: score -= 1; why.append(f"تشبّع شرائي: RSI عند {R:.0f}")
+    elif R >= 52: score += .5; why.append(f"زخم إيجابي: RSI عند {R:.0f}")
+    elif R <= 48: score -= .5; why.append(f"زخم ضعيف: RSI عند {R:.0f}")
+    if hist[n] > 0: score += 1; why.append("زخم MACD إيجابي")
+    else: score -= 1; why.append("زخم MACD سلبي")
     score += .5 if hist[n] > hist[n - 1] else -.5
     if px > bbU: score -= .5
     if px < bbL: score += .5
@@ -275,9 +275,10 @@ def signal_text(rec, name):
             f"Entry Price: <code>{fmt(rec['entry'])}</code>\n"
             f"{tps}\n"
             f"Stop Loss: <code>{fmt(rec['sl'])}</code>\n\n"
-            f"⏱ 1H · قوة الإشارة {abs(rec['score']):.1f}/5\n"
-            f"📊 {' · '.join(rec.get('why', [])[:3])}\n"
-            f"💡 بعد الهدف 1 انقل الوقف لنقطة الدخول.")
+            f"\u200f⏱ قوة الإشارة {abs(rec['score']):.1f}/5 على إطار الساعة\n"
+            f"\u200f📊 أسباب التوصية:\n"
+            + "".join(f"\u200f• {w}\n" for w in rec.get("why", [])[:4]) +
+            f"\u200f💡 بعد الهدف 1 انقل الوقف لنقطة الدخول.")
 
 
 # ---------------- المنطق الرئيسي ----------------
