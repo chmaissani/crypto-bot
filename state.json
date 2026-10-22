@@ -2251,7 +2251,22 @@
   "LTC": 1792688400000,
   "BNB": 1792688400000,
   "PEPE": 1792688400000,
-  "SUI": 1792688400000
+  "SUI": 1792688400000,
+  "XAU": 1792688400000,
+  "XAG": 1792688400000,
+  "COPPER": 1792688400000
  },
- "v21": true
+ "v21": true,
+ "metals": true,
+ "v22": true,
+ "market": {
+  "btc_err": "",
+  "btc": 0,
+  "t": 1792693296093,
+  "coins": {
+   "XAU": "no_pullback",
+   "XAG": "no_pullback",
+   "COPPER": "no_pullback"
+  }
+ }
 }
