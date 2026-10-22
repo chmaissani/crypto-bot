@@ -26,6 +26,15 @@ COINS = [
     ("TON", "تون"), ("SUI", "سوي"), ("AVAX", "أفالانش"), ("LINK", "تشين لينك"),
     ("DOT", "بولكادوت"), ("LTC", "لايتكوين"), ("BCH", "بيتكوين كاش"), ("PEPE", "بيبي"),
 ]
+# المعادن من عقود بايننس الدائمة (Futures). تجريبية: الاستراتيجية لم تُختبر عليها بعد.
+# المصادر بالترتيب: بايننس فيوتشرز ← بديل (PAXG لبايننس للذهب، ثم أسعار COMEX من Yahoo)
+METALS = [("XAU", "الذهب"), ("XAG", "الفضة"), ("COPPER", "النحاس")]
+METAL_SRC = {
+    "XAU": ["fapi:XAUUSDT", "spot:PAXGUSDT", "yahoo:GC=F"],
+    "XAG": ["fapi:XAGUSDT", "yahoo:SI=F"],
+    "COPPER": ["fapi:COPPERUSDT", "yahoo:HG=F"],
+}
+ENABLE_METALS = True        # اجعلها False لإيقاف توصيات المعادن
 TIMEFRAME = "1h"            # إطار الدخول
 RSI_LEVEL = 40              # مستوى التصحيح في RSI (للشراء تحت 40، للبيع فوق 60)
 MIN_ADX = 25                # أقل قوة اتجاه مقبولة
@@ -48,8 +57,71 @@ OKX_BAR = {"5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}
 
 
 # ---------------- البيانات ----------------
+ALL_NAMES = dict(COINS + METALS)
+LAST_SRC = {}  # آخر مصدر نجح لكل رمز
+
+
+def _parse_binance(rows):
+    return [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in rows]
+
+
+def _yahoo(ticker, interval, limit):
+    """شموع COMEX من Yahoo. الـ 4 ساعات تُبنى من شموع الساعة (مجمّعة على حدود UTC)."""
+    yi = {"5m": ("5m", "5d"), "1h": ("60m", "60d"), "4h": ("60m", "60d")}[interval]
+    r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+                     params={"interval": yi[0], "range": yi[1]},
+                     headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+    r.raise_for_status()
+    res = r.json()["chart"]["result"][0]
+    q = res["indicators"]["quote"][0]
+    out = []
+    for i, t in enumerate(res.get("timestamp") or []):
+        o, h, l, c, v = (q[k][i] for k in ("open", "high", "low", "close", "volume"))
+        if None in (o, h, l, c):
+            continue
+        out.append([int(t) * 1000, float(o), float(h), float(l), float(c), float(v or 0)])
+    if interval == "4h":
+        agg = []
+        for x in out:
+            b = x[0] - x[0] % TF_MS["4h"]
+            if agg and agg[-1][0] == b:
+                a = agg[-1]; a[2] = max(a[2], x[2]); a[3] = min(a[3], x[3]); a[4] = x[4]; a[5] += x[5]
+            else:
+                agg.append([b] + x[1:])
+        out = agg
+    if not out:
+        raise RuntimeError(f"no yahoo data {ticker}")
+    return out[-limit:]
+
+
+def metal_klines(sym, interval, limit):
+    errors = []
+    for src in METAL_SRC[sym]:
+        kind, ticker = src.split(":")
+        try:
+            if kind == "fapi":
+                r = requests.get("https://fapi.binance.com/fapi/v1/klines",
+                                 params={"symbol": ticker, "interval": interval, "limit": limit}, timeout=15)
+            elif kind == "spot":
+                r = requests.get(f"{BINANCE[0]}/api/v3/klines",
+                                 params={"symbol": ticker, "interval": interval, "limit": limit}, timeout=15)
+            else:
+                data = _yahoo(ticker, interval, limit)
+                LAST_SRC[sym] = src
+                return data
+            if r.ok and r.json():
+                LAST_SRC[sym] = src
+                return _parse_binance(r.json())
+            errors.append(f"{src}:{r.status_code}")
+        except Exception as e:
+            errors.append(f"{src}:{type(e).__name__}")
+    raise RuntimeError(f"no data for {sym} ({', '.join(errors)})")
+
+
 def klines(sym, interval, limit=300):
     """شموع مرتبة من الأقدم للأحدث: [وقت الفتح ms, open, high, low, close, volume]"""
+    if sym in METAL_SRC:
+        return metal_klines(sym, interval, limit)
     for base in BINANCE:
         try:
             r = requests.get(f"{base}/api/v3/klines",
@@ -157,9 +229,12 @@ def trend_4h(cs4):
     return 0
 
 
-def setup(cs, cs4, btc_trend):
-    """يرجع توصية إذا تحقق إعداد «التصحيح داخل الاتجاه» على آخر شمعة مغلقة، وإلا None."""
+def setup(cs, cs4, btc_trend, diag=None, metal=False):
+    """يرجع توصية إذا تحقق إعداد «التصحيح داخل الاتجاه» على آخر شمعة مغلقة، وإلا None.
+    إذا مُرّر diag (قاموس) يُكتب فيه سبب عدم وجود إشارة."""
+    diag = {} if diag is None else diag
     if len(cs) < 220:
+        diag["why"] = "data"
         return None
     h = [x[2] for x in cs]; l = [x[3] for x in cs]; c = [x[4] for x in cs]
     px = c[-1]
@@ -175,7 +250,23 @@ def setup(cs, cs4, btc_trend):
         d = 1
     elif ALLOW_SHORTS and tr == -1 and max(R[-5:-1]) > 100 - lvl and R[-1] < R[-2] and R[-1] <= 100 - lvl and px < e200:
         d = -1
+    diag.update(trend=tr, adx=round(strength), rsi=round(R[-1]))
     if d == 0 or strength < MIN_ADX or btc_trend != d:
+        want = tr if (tr == 1 or (tr == -1 and ALLOW_SHORTS)) else 0
+        if tr == 0:
+            diag["why"] = "no_trend"
+        elif want == 0:
+            diag["why"] = "shorts_off"
+        elif btc_trend != want:
+            diag["why"] = "btc"
+        elif (want > 0 and px <= e200) or (want < 0 and px >= e200):
+            diag["why"] = "ema200"
+        elif strength < MIN_ADX:
+            diag["why"] = "weak"
+        elif (want > 0 and min(R[-5:-1]) >= lvl) or (want < 0 and max(R[-5:-1]) <= 100 - lvl):
+            diag["why"] = "no_pullback"
+        else:
+            diag["why"] = "near"   # التصحيح حصل وننتظر الارتداد
         return None
     hi, lo = max(h[-13:]), min(l[-13:])
     smin, smax = SL_ATR
@@ -190,9 +281,10 @@ def setup(cs, cs4, btc_trend):
         "السعر " + ("فوق" if d > 0 else "تحت") + " EMA 200 على الساعة",
         f"قوة الاتجاه: ADX عند {strength:.0f}",
         f"تصحيح انتهى: RSI {'نزل إلى' if d > 0 else 'صعد إلى'} {dip:.0f} ثم ارتد إلى {R[-1]:.0f}",
-        "اتجاه البيتكوين على 4 ساعات " + ("صاعد" if d > 0 else "هابط") + " ويدعم الصفقة",
+        ("المعادن لا تتبع البيتكوين، فلا يُطبَّق فلتره هنا" if metal else
+         "اتجاه البيتكوين على 4 ساعات " + ("صاعد" if d > 0 else "هابط") + " ويدعم الصفقة"),
     ]
-    gold = btc_trend == d and strength >= GOLD_MIN_ADX and (px - e50) * d <= 0
+    gold = (not metal) and btc_trend == d and strength >= GOLD_MIN_ADX and (px - e50) * d <= 0
     if gold:
         why.append("تصحيح عميق وصل لمتوسط EMA 50")
     return {"dir": d, "gold": gold, "entry": px, "sl": sl, "r": r, "tp": [px + d * k * r for k in TP_R],
@@ -319,7 +411,22 @@ def chart_png(sym, cs, rec):
 def signal_text(rec, name):
     side = "LONG/BUY 🟢" if rec["dir"] > 0 else "SHORT/SELL 🔴"
     tps = "\n".join(f"Take-Profit Target {i + 1}: <code>{fmt(v)}</code>" for i, v in enumerate(rec["tp"]))
-    title = f"🔥 <b>الصفقة الذهبية</b> — {name}" if rec.get("gold") else f"📊 <b>توصية</b> — {name}"
+    if rec.get("metal"):
+        title = f"🧪 <b>توصية تجريبية</b> — {name}"
+    elif rec.get("gold"):
+        title = f"🔥 <b>الصفقة الذهبية</b> — {name}"
+    else:
+        title = f"📊 <b>توصية</b> — {name}"
+    metal_note = ""
+    if rec.get("metal"):
+        e = rec["entry"]
+        sl_p = abs(rec["sl"] - e) / e * 100
+        tp_p = " / ".join(f"{abs(v - e) / e * 100:.2f}%" for v in rec["tp"])
+        metal_note = ("\u200f🧪 المعادن جديدة على البوت ولم تُختبر الاستراتيجية عليها بعد، فنتائجها تُحسب منفصلة.\n"
+                      "\u200f📌 العقد على بايننس فيوتشرز: " + rec["sym"] + "USDT\n")
+        if not rec.get("src", "").startswith("fapi"):
+            metal_note += (f"\u200f⚠️ الأسعار من مصدر بديل ({rec.get('src', '').split(':')[-1]}) وقد تختلف قليلاً عن بايننس. "
+                           f"اعتمد النسب من سعر دخولك: الوقف {sl_p:.2f}% والأهداف {tp_p}\n")
     return (f"{title}\n\n"
             f"<b>SIGNAL</b>\n<b>{rec['sym']}/USDT</b>\n"
             f"Trade Type: <b>{side}</b>\n"
@@ -328,6 +435,7 @@ def signal_text(rec, name):
             f"Entry Price: <code>{fmt(rec['entry'])}</code>\n"
             f"{tps}\n"
             f"Stop Loss: <code>{fmt(rec['sl'])}</code>\n\n"
+            + metal_note
             + ("\u200f⭐ أقوى نوع توصيات عند البوت: نجح 3 من كل 4 في اختبار شهرين\n" if rec.get("gold") else "")
             + f"\u200f⏱ إطار الساعة · تصحيح داخل الاتجاه\n"
             f"\u200f📊 أسباب التوصية:\n"
@@ -338,7 +446,7 @@ def signal_text(rec, name):
 # ---------------- المنطق الرئيسي ----------------
 def track(rec, candles5, st, closes):
     """متابعة التوصية على شموع 5 دقائق منذ آخر فحص."""
-    name = dict(COINS)[rec["sym"]]
+    name = ALL_NAMES.get(rec["sym"], rec["sym"])
     for k in candles5:
         if k[0] < rec["last"]:
             continue
@@ -373,6 +481,47 @@ def close(rec, exit_px, why, st, closes):
     closes.append(rec["sym"])
 
 
+REASON_AR = {
+    "btc": "اتجاهها لا يطابق اتجاه البيتكوين",
+    "no_trend": "بدون اتجاه واضح على 4 ساعات",
+    "weak": "الاتجاه ضعيف (ADX تحت الحد)",
+    "ema200": "السعر في الجهة الخطأ من EMA 200",
+    "no_pullback": "الاتجاه جيد وننتظر تصحيحاً",
+    "near": "التصحيح حصل وننتظر الارتداد ⏳",
+    "shorts_off": "اتجاه هابط والبيع (Short) مقفل",
+    "error": "تعذر جلب بياناتها",
+    "data": "بيانات غير كافية",
+}
+
+
+def market_status(st):
+    m = st.get("market") or {}
+    if not m:
+        return ""
+    btc = {1: "صاعد 📈", -1: "هابط 📉", 0: "محايد ↔️"}[m.get("btc", 0)]
+    out = [f"\n\n🌡 <b>حالة السوق الآن</b>\n\u200fاتجاه البيتكوين على 4 ساعات: <b>{btc}</b>"]
+    if m.get("btc_err"):
+        out.append("\u200f⚠️ تعذر قراءة اتجاه البيتكوين في آخر فحص، لذلك توقفت التوصيات مؤقتاً")
+    elif m.get("btc", 0) == 0:
+        out.append("\u200fالبوت لا يفتح صفقات والبيتكوين محايد، وينتظر اتجاهاً واضحاً")
+    elif m.get("btc") == -1 and not ALLOW_SHORTS:
+        out.append("\u200fالبيتكوين هابط وتوصيات البيع مقفلة، فالبوت ينتظر عودة الصعود")
+    groups = {}
+    for sym, why in (m.get("coins") or {}).items():
+        groups.setdefault(why, []).append(sym)
+    for why in ["near", "no_pullback", "btc", "no_trend", "weak", "ema200", "shorts_off", "error", "data"]:
+        if why in groups:
+            out.append(f"\u200f• {REASON_AR[why]}: {', '.join(groups[why])}")
+    last = st.get("last_signal")
+    if last:
+        days = (time.time() * 1000 - last) / 86400000
+        if days >= 1:
+            n = round(days)
+            word = "يوم" if n == 1 else "يومين" if n == 2 else f"{n} أيام" if n <= 10 else f"{n} يوماً"
+            out.append(f"\u200fآخر توصية جديدة كانت قبل {word}")
+    return "\n".join(out)
+
+
 def daily_summary(st):
     now = datetime.now(timezone.utc)
     key = now.strftime("%Y-%m-%d")
@@ -381,15 +530,19 @@ def daily_summary(st):
     st["summary_day"] = key
     day_ago = (time.time() - 86400) * 1000
     hist = [r for r in st.get("history", []) if r.get("closed_at", 0) >= day_ago]
-    allh = [r for r in st.get("history", []) if r.get("v") == 2] or st.get("history", [])
+    allh = [r for r in st.get("history", []) if r.get("v") == 2 and not r.get("metal")] or \
+        [r for r in st.get("history", []) if not r.get("metal")]
+    mh = [r for r in st.get("history", []) if r.get("metal")]
     wins = sum(1 for r in allh if r["res"] > 0)
-    lines = [f"{'✅' if r['res'] > 0 else '❌'} {'🔥' if r.get('gold') else ''}{r['sym']} {'LONG' if r['dir'] > 0 else 'SHORT'}: {pct(r['res'])}" for r in hist]
-    active = [f"⏳ {'🔥' if r.get('gold') else ''}{r['sym']} {'LONG' if r['dir'] > 0 else 'SHORT'} · أهداف {r['hits']}/3" for r in st.get("active", {}).values()]
+    lines = [f"{'✅' if r['res'] > 0 else '❌'} {'🔥' if r.get('gold') else '🧪' if r.get('metal') else ''}{r['sym']} {'LONG' if r['dir'] > 0 else 'SHORT'}: {pct(r['res'])}" for r in hist]
+    active = [f"⏳ {'🔥' if r.get('gold') else '🧪' if r.get('metal') else ''}{r['sym']} {'LONG' if r['dir'] > 0 else 'SHORT'} · أهداف {r['hits']}/3" for r in st.get("active", {}).values()]
     gh = [r for r in allh if r.get("gold")]
+    market_txt = market_status(st)
+    metal_line = (f"\nنسبة نجاح المعادن 🧪 (تجريبية): <b>{round(sum(1 for r in mh if r['res'] > 0) / len(mh) * 100)}%</b> من {len(mh)}") if mh else ""
     gold_line = (f"\nنسبة نجاح الصفقات الذهبية 🔥: <b>{round(sum(1 for r in gh if r['res'] > 0) / len(gh) * 100)}%</b> من {len(gh)}") if gh else ""
     send("📋 <b>ملخص اليوم</b>\n\n" + ("\n".join(lines) if lines else "لا توجد توصيات أُغلقت اليوم.") +
          ("\n\n<b>النشطة الآن:</b>\n" + "\n".join(active) if active else "") +
-         (f"\n\nنسبة النجاح{' للإصدار 2' if allh[0].get('v') == 2 else ''}: <b>{round(wins / len(allh) * 100)}%</b> من {len(allh)} توصية" if allh else "") + gold_line)
+         (f"\n\nنسبة النجاح{' للإصدار 2' if allh[0].get('v') == 2 else ''}: <b>{round(wins / len(allh) * 100)}%</b> من {len(allh)} توصية" if allh else "") + gold_line + metal_line + market_txt)
 
 
 def main():
@@ -416,6 +569,18 @@ def main():
              "\u200f• أقصى تراجع متتالي أقل بعشر مرات\n\n"
              "التوصيات المفتوحة من الإصدار القديم سيكمل البوت متابعتها حتى تُغلق.")
         st["version"] = 2
+    if ENABLE_METALS and not st.get("metals"):
+        send("🧪 <b>إضافة المعادن: الذهب والفضة والنحاس</b>\n\n"
+             "صار البوت يفحص عقود بايننس فيوتشرز: XAUUSDT و XAGUSDT و COPPERUSDT بنفس استراتيجية التصحيح داخل الاتجاه.\n\n"
+             "\u200f• المعادن لا تتبع البيتكوين، فيُستخدم اتجاه المعدن نفسه بدل فلتر البيتكوين\n"
+             "\u200f• الاستراتيجية لم تُختبر على المعادن بعد، لذلك توصياتها بعنوان «🧪 توصية تجريبية» ونتائجها تُحسب منفصلة\n"
+             "\u200f• الملخص اليومي يعرض نسبة نجاح المعادن لحالها")
+        st["metals"] = True
+    if st.get("v21") and not st.get("v22"):
+        send("🔧 <b>تحديث 2.2</b>\n\n"
+             "صار الملخص اليومي يعرض <b>حالة السوق</b>: اتجاه البيتكوين، وسبب عدم وجود توصية لكل عملة، والعملات القريبة من إشارة.\n"
+             "هيك بتعرف إذا السوق ساكت أو في مشكلة بالبوت.")
+        st["v22"] = True
     if not st.get("v21"):
         send("🔧 <b>تحديث 2.1</b>\n\n"
              "صار البوت يشترط أن يكون <b>البيتكوين بنفس اتجاه الصفقة</b>، وما عاد يقبل البيتكوين المحايد.\n\n"
@@ -423,20 +588,29 @@ def main():
              "\u200f• على اختبار شهرين: نسبة النجاح من 62% إلى 68%، وتحسنت في كل فترات الاختبار\n"
              "\u200f• التوصيات أقل قليلاً: نحو 2 يومياً")
         st["v21"] = True
+        st["v22"] = True
 
     active = st.setdefault("active", {})
     hist = st.setdefault("history", [])
     last_close = st.setdefault("last_close", {})
     now_ms = int(time.time() * 1000)
 
+    market = st.setdefault("market", {})
     try:
         btc_trend = trend_4h(closed_klines("BTC", "4h", 120))
+        market["btc_err"] = ""
     except Exception as e:
         print(f"BTC trend error {e}")
         btc_trend = 0
+        market["btc_err"] = str(e)[:120]
+    market["btc"] = btc_trend
+    market["t"] = now_ms
+    coin_status = market.setdefault("coins", {})
     print(f"BTC 4h trend: {btc_trend:+d}")
 
-    for sym, name in COINS:
+    universe = COINS + (METALS if ENABLE_METALS else [])
+    for sym, name in universe:
+        is_metal = sym in METAL_SRC
         try:
             rec = active.get(sym)
             if rec:
@@ -454,23 +628,29 @@ def main():
             if st.setdefault("last_bar", {}).get(sym) == cs[-1][0]:
                 continue  # هذه الشمعة فُحصت سابقاً
             st["last_bar"][sym] = cs[-1][0]
-            sig = setup(cs, closed_klines(sym, "4h", 120), btc_trend)
+            dg = {}
+            cs4 = closed_klines(sym, "4h", 120)
+            # المعادن لا تتبع البيتكوين: نستخدم اتجاهها هي على 4 ساعات بدل فلتر البيتكوين
+            sig = setup(cs, cs4, trend_4h(cs4) if is_metal else btc_trend, dg, metal=is_metal)
+            coin_status[sym] = dg.get("why", "signal")
             if not sig:
-                print(f"{sym}: no setup")
+                print(f"{sym}: no setup ({dg})")
                 continue
+            st["last_signal"] = now_ms
             # لا ننشر إذا تحرك السعر كثيراً منذ إغلاق الشمعة
             live = klines(sym, "5m", 1)[-1][4]
             if abs(live - sig["entry"]) > 0.5 * sig["r"]:
                 print(f"{sym}: setup skipped, price moved away ({fmt(live)})")
                 continue
             rec = {"sym": sym, "dir": sig["dir"], "entry": sig["entry"], "sl": sig["sl"], "tp": sig["tp"],
-                   "lev": suggest_lev(sig["entry"], sig["sl"]), "why": sig["why"], "v": 2, "gold": sig["gold"],
+                   "lev": suggest_lev(sig["entry"], sig["sl"]), "why": sig["why"], "v": 2, "gold": sig["gold"], "metal": is_metal, "src": LAST_SRC.get(sym, "binance"),
                    "t": now_ms, "last": cs[-1][0] + TF_MS[TIMEFRAME], "hits": 0, "status": "active"}
             rec["msg"] = send(signal_text(rec, name), photo=chart_png(sym, cs, rec))
             active[sym] = rec
             print(f"NEW {sym} {'LONG' if sig['dir'] > 0 else 'SHORT'} @ {fmt(sig['entry'])}{' GOLD' if sig['gold'] else ''}")
         except Exception as e:  # عملة وحدة ما توقف الباقي
             print(f"{sym}: error {e}")
+            coin_status[sym] = "error"
 
     st["history"] = hist[:100]
     daily_summary(st)
