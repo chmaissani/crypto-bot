@@ -2253,8 +2253,8 @@
   "PEPE": 1792724400000,
   "SUI": 1792724400000,
   "XAU": 1792724400000,
-  "XAG": 1792638000000,
-  "COPPER": 1792638000000
+  "XAG": 1792724400000,
+  "COPPER": 1792724400000
  },
  "v21": true,
  "metals": true,
@@ -2262,10 +2262,10 @@
  "market": {
   "btc_err": "",
   "btc": -1,
-  "t": 1792728738973,
+  "t": 1792730310131,
   "coins": {
    "XAU": "no_pullback",
-   "XAG": "weak",
+   "XAG": "no_pullback",
    "COPPER": "no_pullback",
    "BTC": "no_pullback",
    "ETH": "no_pullback",
