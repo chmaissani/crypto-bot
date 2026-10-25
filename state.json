@@ -25,7 +25,7 @@
    "metal": false,
    "src": "binance",
    "t": 1792771211405,
-   "last": 1792926000000,
+   "last": 1792927800000,
    "hits": 2,
    "status": "active",
    "msg": 239
@@ -53,7 +53,7 @@
    "metal": false,
    "src": "binance",
    "t": 1792908883519,
-   "last": 1792926000000,
+   "last": 1792927800000,
    "hits": 0,
    "status": "active",
    "msg": 245
@@ -2384,7 +2384,7 @@
  "market": {
   "btc_err": "",
   "btc": -1,
-  "t": 1792926252994,
+  "t": 1792928037442,
   "coins": {
    "XAU": "no_pullback",
    "XAG": "no_pullback",
