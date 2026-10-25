@@ -25,7 +25,7 @@
    "metal": false,
    "src": "binance",
    "t": 1792908883519,
-   "last": 1792951200000,
+   "last": 1792953300000,
    "hits": 0,
    "status": "active",
    "msg": 245
@@ -53,7 +53,7 @@
    "metal": true,
    "src": "spot:PAXGUSDT",
    "t": 1792951242678,
-   "last": 1792951200000,
+   "last": 1792953300000,
    "hits": 0,
    "status": "active",
    "msg": 247
@@ -2416,7 +2416,7 @@
  "market": {
   "btc_err": "",
   "btc": -1,
-  "t": 1792951242678,
+  "t": 1792953391109,
   "coins": {
    "XAU": "signal",
    "XAG": "no_pullback",
