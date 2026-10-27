@@ -25,7 +25,7 @@
    "metal": true,
    "src": "yahoo:SI=F",
    "t": 1793125518429,
-   "last": 1793142614000,
+   "last": 1793144493000,
    "hits": 0,
    "status": "active",
    "msg": 255
@@ -2485,7 +2485,7 @@
  "market": {
   "btc_err": "",
   "btc": -1,
-  "t": 1793143234192,
+  "t": 1793145138756,
   "coins": {
    "XAU": "no_trend",
    "XAG": "signal",
