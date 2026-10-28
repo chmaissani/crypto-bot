@@ -25,7 +25,7 @@
    "metal": true,
    "src": "yahoo:SI=F",
    "t": 1793125518429,
-   "last": 1793188651000,
+   "last": 1793191641000,
    "hits": 1,
    "status": "active",
    "msg": 255
@@ -53,7 +53,7 @@
    "metal": true,
    "src": "spot:PAXGUSDT",
    "t": 1793160695108,
-   "last": 1793189100000,
+   "last": 1793192100000,
    "hits": 0,
    "status": "active",
    "msg": 260
@@ -2545,7 +2545,7 @@
  "market": {
   "btc_err": "",
   "btc": 0,
-  "t": 1793189239953,
+  "t": 1793192235633,
   "coins": {
    "XAU": "signal",
    "XAG": "signal",
