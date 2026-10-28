@@ -25,7 +25,7 @@
    "metal": true,
    "src": "yahoo:SI=F",
    "t": 1793125518429,
-   "last": 1793160073000,
+   "last": 1793162419000,
    "hits": 0,
    "status": "active",
    "msg": 255
@@ -53,7 +53,7 @@
    "metal": true,
    "src": "spot:PAXGUSDT",
    "t": 1793160695108,
-   "last": 1793160000000,
+   "last": 1793163000000,
    "hits": 0,
    "status": "active",
    "msg": 260
@@ -2537,7 +2537,7 @@
   "SUI": 1793156400000,
   "XAU": 1793156400000,
   "XAG": 1793120400000,
-  "COPPER": 1793149200000
+  "COPPER": 1793145600000
  },
  "v21": true,
  "metals": true,
@@ -2545,7 +2545,7 @@
  "market": {
   "btc_err": "",
   "btc": 0,
-  "t": 1793160695108,
+  "t": 1793163023606,
   "coins": {
    "XAU": "signal",
    "XAG": "signal",
