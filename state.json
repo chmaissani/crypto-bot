@@ -25,7 +25,7 @@
    "metal": false,
    "src": "binance",
    "t": 1793247286915,
-   "last": 1793294100000,
+   "last": 1793296500000,
    "hits": 0,
    "status": "active",
    "msg": 268
@@ -2621,7 +2621,7 @@
  "version": 2,
  "last_bar": {
   "TON": 1782784800000,
-  "LINK": 1793242800000,
+  "LINK": 1793289600000,
   "ETH": 1793289600000,
   "TRX": 1793289600000,
   "DOGE": 1793289600000,
@@ -2646,7 +2646,7 @@
  "market": {
   "btc_err": "",
   "btc": 0,
-  "t": 1793294113888,
+  "t": 1793296635562,
   "coins": {
    "XAU": "weak",
    "XAG": "weak",
@@ -2661,7 +2661,7 @@
    "TRX": "btc",
    "SUI": "no_trend",
    "AVAX": "btc",
-   "LINK": "signal",
+   "LINK": "no_trend",
    "DOT": "btc",
    "LTC": "signal",
    "BCH": "btc",
