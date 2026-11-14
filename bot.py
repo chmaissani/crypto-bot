@@ -27,12 +27,15 @@ COINS = [
     ("DOT", "بولكادوت"), ("LTC", "لايتكوين"), ("BCH", "بيتكوين كاش"), ("PEPE", "بيبي"),
 ]
 # المعادن من عقود بايننس الدائمة (Futures)، باستراتيجية خاصة بها: اختراق 4 ساعات + وقف متحرك.
-# اختبار سنتين (COMEX): الذهب +0.77% والفضة +0.71% متوسط الصفقة، رابحة في الفترتين. النحاس خاسر فأُزيل.
+# اختبار سنتين (COMEX)، شراء فقط: الذهب والفضة والبلاتين والبالاديوم رابحة في الفترتين. النحاس خاسر فأُزيل.
+# البيع (Short) على المعادن خاسر في الاختبار، فهو مقفل لها (العملات الرقمية لا تتأثر).
 # المصادر بالترتيب: بايننس فيوتشرز ← أسعار COMEX من Yahoo (نفس بيانات الاختبار) ← PAXG للذهب
-METALS = [("XAU", "الذهب"), ("XAG", "الفضة")]
+METALS = [("XAU", "الذهب"), ("XAG", "الفضة"), ("XPT", "البلاتين"), ("XPD", "البالاديوم")]
 METAL_SRC = {
     "XAU": ["fapi:XAUUSDT", "yahoo:GC=F", "spot:PAXGUSDT"],
     "XAG": ["fapi:XAGUSDT", "yahoo:SI=F"],
+    "XPT": ["fapi:XPTUSDT", "yahoo:PL=F"],
+    "XPD": ["fapi:XPDUSDT", "yahoo:PA=F"],
     "COPPER": ["fapi:COPPERUSDT", "yahoo:HG=F"],
 }
 ENABLE_METALS = True        # اجعلها False لإيقاف توصيات المعادن
@@ -40,6 +43,7 @@ METAL_BREAKOUT = 20         # اختراق أعلى/أدنى إغلاق في آ�
 METAL_STOP_ATR = 2.5        # الوقف الأولي: 2.5 × ATR (4 ساعات)
 METAL_TRAIL_ATR = 3.0       # الوقف المتحرك: 3 × ATR خلف أفضل إغلاق 4 ساعات منذ الدخول
 METAL_MAX_BARS = 60         # أقصى مدة: 60 شمعة 4 ساعات (10 أيام)
+METAL_SHORTS = False        # البيع على المعادن خسر في الاختبار، فهو مقفل
 TIMEFRAME = "1h"            # إطار الدخول
 RSI_LEVEL = 40              # مستوى التصحيح في RSI (للشراء تحت 40، للبيع فوق 60)
 MIN_ADX = 25                # أقل قوة اتجاه مقبولة
@@ -306,10 +310,10 @@ def metal_setup(cs4, csd, diag=None):
     px, at = c[-1], atr(h, l, c)
     dt = trend_4h(csd)          # نفس قاعدة الاتجاه (EMA20/EMA50) على الشموع اليومية
     hi, lo = max(c[-n - 1:-1]), min(c[-n - 1:-1])
-    d = 1 if (dt == 1 and px > hi) else -1 if (ALLOW_SHORTS and dt == -1 and px < lo) else 0
+    d = 1 if (dt == 1 and px > hi) else -1 if (METAL_SHORTS and dt == -1 and px < lo) else 0
     diag.update(trend=dt)
     if not d:
-        diag["why"] = "no_trend_d" if dt == 0 else "shorts_off" if (dt == -1 and not ALLOW_SHORTS) else "no_breakout"
+        diag["why"] = "no_trend_d" if dt == 0 else "metal_down" if (dt == -1 and not METAL_SHORTS) else "no_breakout"
         return None
     sl = px - d * METAL_STOP_ATR * at
     why = [f"الاتجاه اليومي {'صاعد' if d > 0 else 'هابط'}: EMA 20 {'فوق' if d > 0 else 'تحت'} EMA 50",
@@ -496,7 +500,8 @@ def metal_signal_text(rec, name):
             f"\u200f📊 أسباب التوصية:\n"
             + "".join(f"\u200f• {w}\n" for w in rec.get("why", [])) +
             f"\u200f🔼 الوقف يتحرك خلف السعر (3 × ATR)، والبوت يخبرك كلما ارتفع لتحدّثه عندك.\n"
-            f"\u200f💡 اختبار سنتين: تربح نحو 4 صفقات من 10، والربح من الصفقات التي تركب موجة. لا تخرج مبكراً.")
+            f"\u200f💡 اختبار سنتين: تربح نحو 4 صفقات من 10، والربح من الصفقات التي تركب موجة. لا تخرج مبكراً.\n"
+            f"\u200f📈 المعادن شراء فقط: البيع عليها خسر في الاختبار.")
 
 
 def track_metal(rec, candles5, cs4, st, closes):
@@ -581,7 +586,8 @@ REASON_AR = {
     "near": "التصحيح حصل وننتظر الارتداد ⏳",
     "shorts_off": "اتجاه هابط والبيع (Short) مقفل",
     "no_trend_d": "معدن بدون اتجاه يومي واضح",
-    "no_breakout": "معدن باتجاه واضح وننتظر اختراقاً",
+    "no_breakout": "معدن باتجاه صاعد وننتظر اختراقاً",
+    "metal_down": "معدن باتجاه هابط (المعادن شراء فقط، ننتظر)",
     "error": "تعذر جلب بياناتها",
     "data": "بيانات غير كافية",
 }
@@ -602,7 +608,7 @@ def market_status(st):
     groups = {}
     for sym, why in (m.get("coins") or {}).items():
         groups.setdefault(why, []).append(sym)
-    for why in ["near", "no_pullback", "btc", "no_trend", "weak", "ema200", "no_breakout", "no_trend_d", "shorts_off", "error", "data"]:
+    for why in ["near", "no_pullback", "btc", "no_trend", "weak", "ema200", "no_breakout", "no_trend_d", "metal_down", "shorts_off", "error", "data"]:
         if why in groups:
             out.append(f"\u200f• {REASON_AR[why]}: {', '.join(groups[why])}")
     last = st.get("last_signal")
@@ -712,6 +718,17 @@ def main():
              "\u200f• أُزيل النحاس لأنه خاسر بكل الطرق\n"
              "\u200f• نتائج المعادن الجديدة تُحسب منفصلة في الملخص اليومي")
         st["metals_v2"] = True
+    if ENABLE_METALS and not st.get("metals_v3"):
+        send("🥇 <b>تحديث المعادن: البلاتين والبالاديوم، وشراء فقط</b>\n\n"
+             "اختبار سنتين على 5 معادن بطريقة الاختراق:\n"
+             "\u200f• شراء فقط: الذهب والفضة والبلاتين والبالاديوم <b>رابحة في الفترتين</b>\n"
+             "\u200f• الذهب: +0.70% ثم +1.60% متوسط الصفقة · الفضة: +0.32% ثم +1.23%\n"
+             "\u200f• البلاتين: +0.47% ثم +1.12% · البالاديوم: +0.45% ثم +0.51%\n"
+             "\u200f• البيع (Short) على المعادن خسر، فصارت المعادن <b>شراء فقط</b>\n"
+             "\u200f• العملات الرقمية لم تتغير وتبقى شراء وبيع\n\n"
+             "\u200fملاحظة: المعادن كانت في صعود قوي خلال فترة الاختبار. إذا انقلب اتجاهها اليومي للهبوط، "
+             "يتوقف البوت عن توصياتها وينتظر بدل أن يخسر.")
+        st["metals_v3"] = True
     if st.get("v21") and not st.get("v22"):
         send("🔧 <b>تحديث 2.2</b>\n\n"
              "صار الملخص اليومي يعرض <b>حالة السوق</b>: اتجاه البيتكوين، وسبب عدم وجود توصية لكل عملة، والعملات القريبة من إشارة.\n"
