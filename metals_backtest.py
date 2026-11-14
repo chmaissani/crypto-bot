@@ -1,5 +1,5 @@
 """
-اختبار استراتيجيات المعادن (الذهب والفضة والنحاس) على سنتين من شموع الساعة الحقيقية (COMEX من Yahoo).
+اختبار استراتيجيات المعادن (الذهب والفضة والبلاتين والبالاديوم والنحاس) على سنتين من شموع الساعة الحقيقية (COMEX من Yahoo).
 القواعد مثل البوت: إشارة عند إغلاق الشمعة، وقف خسارة يُفحص أولاً في كل شمعة، عمولة وانزلاق 0.05%.
 نختار على أول 60% من الفترة، ونحكم على آخر 40% (بيانات لم تُستخدم في الاختيار).
 يرسل النتيجة على تيليغرام.
@@ -10,7 +10,8 @@ import time
 
 import requests
 
-TICKERS = {"XAU": ("GC=F", "الذهب"), "XAG": ("SI=F", "الفضة"), "COPPER": ("HG=F", "النحاس")}
+TICKERS = {"XAU": ("GC=F", "الذهب"), "XAG": ("SI=F", "الفضة"), "XPT": ("PL=F", "البلاتين"),
+           "XPD": ("PA=F", "البالاديوم"), "COPPER": ("HG=F", "النحاس")}
 FEE = 0.0005
 H = 3_600_000
 
@@ -267,7 +268,7 @@ def main():
         t1 = lambda i: h4.trend(i4[i])
         d_of_1h = lambda i: d1.trend(i1d[i])
         d_of_4h = lambda i: d1.trend(i4d[i])
-        return [
+        return [x for x in [
             ("الحالية: تصحيح ساعة، شراء وبيع", h1, t1, "pullback", {"shorts": True}),
             ("تصحيح ساعة، شراء فقط", h1, t1, "pullback", {}),
             ("تصحيح ساعة، شراء فقط + اتجاه يومي", h1, t1, "pullback", {"daily": d_of_1h}),
@@ -280,7 +281,7 @@ def main():
             ("فكرة مؤشر سامي: انضغاط + كسر، ساعة", h1, t1, "squeeze", {"tps": (0.9, 2, 3), "ttl": 48, "cool": 0}),
             ("فكرة مؤشر سامي: انضغاط + كسر، 4 ساعات", h4, d_of_4h, "squeeze", {"tps": (0.9, 2, 3), "ttl": 30, "cool": 0}),
             ("فكرة مؤشر سامي + اتجاه 4 ساعات، ساعة", h1, t1, "squeeze", {"tps": (0.9, 2, 3), "ttl": 48, "cool": 0, "need_trend": True}),
-        ]
+        ] if x[0].startswith("اختراق 4 ساعات")]  # الطريقة الرابحة فقط
 
     names = None
     rows = {}
@@ -308,12 +309,18 @@ def main():
         print(label, a, b)
     scored.sort(key=lambda x: -x[0])
     out = ["🥇 <b>اختبار استراتيجيات المعادن</b>",
-           "‏الذهب والفضة والنحاس · سنتان من شموع الساعة · عمولة 0.05%",
+           "‏الذهب والفضة والبلاتين والبالاديوم والنحاس · سنتان من شموع الساعة · عمولة 0.05%",
+           "‏✅ = رابح في الفترتين (الأولى ← الثانية)",
            "‏مرتبة حسب أضعف أداء بين الفترتين (الأثبت أولاً). النسب على السعر بدون رافعة.\n"]
     for k, (score, label, a, b) in enumerate(scored, 1):
         pm = per_metal[label]
-        metals = " · ".join(f"{data[m][0]} {stats(pm[m])['avg']:+.2f}%" if pm[m] else f"{data[m][0]} -" for m in pm)
-        out.append(f"‏<b>{k}. {label}</b>\n‏   الفترة الأولى: {f(a)}\n‏   الفترة الثانية: <b>{f(b)}</b>\n‏   لكل معدن: {metals}\n")
+        out.append(f"‏<b>{k}. {label}</b>\n‏   الكل، الفترة الأولى: {f(a)}\n‏   الكل، الفترة الثانية: <b>{f(b)}</b>")
+        for m in pm:
+            ma = stats([x for x in pm[m] if x["t"] < split_t]); mb = stats([x for x in pm[m] if x["t"] >= split_t])
+            ok = ma and mb and ma["avg"] > 0 and mb["avg"] > 0
+            g = lambda st: f"{st['avg']:+.2f}% ({st['n']} صفقة، نجاح {st['win']:.0f}%)" if st else "-"
+            out.append(f"‏   {'✅' if ok else '❌'} {data[m][0]}: {g(ma)} ← {g(mb)}")
+        out.append("")
     out.append("‏PF = مجموع الأرباح ÷ مجموع الخسائر (فوق 1.3 جيد، تحت 1 خاسر)")
     text = "\n".join(out)
     print(text)
